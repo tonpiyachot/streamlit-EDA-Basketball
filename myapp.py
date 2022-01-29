@@ -1,0 +1,79 @@
+from audioop import reverse
+import streamlit as st
+import pandas as pd
+import base64
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+
+st.title("NBA Player Stats Explorer")
+
+st.markdown("""
+### This is performs simple webscraping of NBA player stats data!
+
+**Reference:** https://youtu.be/JwSS70SZdyM
+
+**Data source:** [Basketball-reference.com](https://www.basketball-reference.com/)
+
+"""
+)
+
+st.sidebar.header("User Input Filters")
+filter_year = st.sidebar.selectbox("Year", list(reversed(range(2000,2021))))
+
+@st.cache
+def load_data(year):
+    url = "https://www.basketball-reference.com/leagues/NBA_" + str(year) + "_per_game.html"
+    html = pd.read_html(url, header = 0)
+    df = html[0]
+    raw = df.drop(df[df.Age == 'Age'].index) # Deletes repeating headers in content
+    
+    # Set the type of each column to str to address issues like below.
+    # streamlit.errors.StreamlitAPIException: (
+    # "Expected bytes, got a 'int' object", 'Conversion failed for column FG% with type object')
+    raw = raw.astype(str)
+    
+    raw = raw.fillna(0)
+    playerstats = raw.drop(['Rk'], axis=1)
+    return playerstats
+
+playerstats = load_data(filter_year)
+
+unique_team = sorted(playerstats.Tm.unique())
+filter_team = st.sidebar.multiselect("Team", unique_team, unique_team)
+
+unique_position = ['C','PF','SF','PG','SG']
+filter_position = st.sidebar.multiselect("Position", unique_position, unique_position)
+
+df_filter = playerstats[(playerstats.Tm.isin(filter_team)) & (playerstats.Pos.isin(filter_position))]
+
+st.header("Display Player Stats of Selected Team(s) and Position(s)")
+st.write("Data Dimension: " + str(df_filter.shape[0]) + ' rows and ' + str(df_filter.shape[1]) + ' columns.')
+
+# Reset index
+df_filter = df_filter.astype(str).reset_index(drop = True)
+st.dataframe(df_filter)
+
+# Download NBA player stats data
+# https://discuss.streamlit.io/t/how-to-download-file-in-streamlit/1806
+def file_download(df):
+    csv = df.to_csv(index=False)
+    b64 = base64.b64encode(csv.encode()).decode()  # strings <-> bytes conversions
+    href = f'<a href="data:file/csv;base64,{b64}" download="playerstats.csv">Download CSV File</a>'
+    return href
+
+st.markdown(file_download(df_filter), unsafe_allow_html=True)
+
+
+st.header("Intercorrelation Matrix Heatmap")
+df_filter.to_csv("output.csv", index=False)
+df = pd.read_csv("output.csv")
+corr = df.corr()
+mask = np.zeros_like(corr)
+mask[np.triu_indices_from(mask)] = True
+
+with sns.axes_style("white"):
+    f, ax = plt.subplots(figsize=(7, 5))
+    ax = sns.heatmap(corr, mask=mask, vmax=1, square=True)
+st.pyplot(f)
+
